@@ -627,6 +627,92 @@ body.cb .tile::after, body.cb .key:not(:hover)::after {
   margin-top: 4px;
 }
 
+/* ---------- v1.3: daily hunt ---------- */
+#daily-day-note {
+  text-align: center;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-dim);
+  padding: 4px 8px 5px;
+  border-bottom: 1px solid var(--line);
+}
+#daily-day-note[hidden] { display: none; }
+
+#daily-submit {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-bottom: 16px;
+}
+#daily-submit[hidden] { display: none; }
+.daily-sub-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .25em;
+  color: var(--ember);
+  margin-bottom: 8px;
+}
+.daily-form { display: flex; gap: 8px; justify-content: center; margin-bottom: 10px; }
+#name-input {
+  background: var(--bg-panel);
+  border: 1px solid var(--tile-border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  width: 140px;
+}
+#name-input:focus { outline: none; border-color: var(--ember-dim); }
+#name-input[hidden] { display: none; }
+
+.board-players { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+.board-players b { color: var(--ember); }
+.board-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-align: left;
+}
+.board-row.me {
+  background: rgba(224, 118, 46, .12);
+  border: 1px solid var(--ember-dim);
+}
+.board-rank { width: 22px; color: var(--text-dim); font-size: 11px; text-align: right; flex: 0 0 auto; }
+.board-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-moves { font-weight: 700; color: var(--ember); flex: 0 0 auto; }
+.board-note { font-size: 12px; font-style: italic; color: var(--text-dim); }
+
+.stats-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.stats-tab {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+}
+.stats-tab[aria-selected="true"] {
+  color: var(--ember);
+  border-color: var(--ember-dim);
+  background: #241a12;
+}
+#stats-body[hidden], #global-body[hidden] { display: none; }
+.day-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+#global-day-label { font-size: 13px; font-weight: 700; letter-spacing: .1em; }
+.day-switch .icon-btn:disabled { opacity: .3; cursor: default; }
+
 /* ---------- small screens ---------- */
 @media (max-width: 420px) {
   #wordmark { font-size: 20px; }

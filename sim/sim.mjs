@@ -28,6 +28,7 @@ const MAX_MOVES = parseInt(opt('maxMoves', '60'), 10);
 const SEED = parseInt(opt('seed', '1'), 10);
 const SHUFFLE_START = args.includes('--shuffleStart');
 const MOVE_EVERY = parseInt(opt('moveEvery', '1'), 10); // 2 = FAWN, 1 = FOX/WOLF
+const GAME_SEED = parseInt(opt('gameSeed', '0'), 10) >>> 0; // nonzero = seeded daily-style host
 
 // --- seeded LCG (numerical recipes constants) ---
 function makeLCG(seed) {
@@ -98,7 +99,7 @@ const trajSums = new Array(15).fill(0);
 const trajCounts = new Array(15).fill(0);
 
 for (let gi = 0; gi < GAMES; gi++) {
-  const game = newGame({ answers: ANSWERS, allowed: GUESSES, adjacency: ADJ, moveEveryNTurns: MOVE_EVERY });
+  const game = newGame({ answers: ANSWERS, allowed: GUESSES, adjacency: ADJ, moveEveryNTurns: MOVE_EVERY, seed: GAME_SEED });
   const pick = BOT === 'random' ? randomBot(rng) : greedyBot(rng);
   let moves = 0;
   while (!game.gameOver && moves < MAX_MOVES) {
@@ -126,7 +127,7 @@ for (let gi = 0; gi < GAMES; gi++) {
 
 const caughtGames = results.filter(r => r.caught).map(r => r.moves).sort((a, b) => a - b);
 const n = caughtGames.length;
-console.log(`\nbot=${BOT} games=${GAMES} maxMoves=${MAX_MOVES} seed=${SEED} moveEvery=${MOVE_EVERY}`);
+console.log(`\nbot=${BOT} games=${GAMES} maxMoves=${MAX_MOVES} seed=${SEED} moveEvery=${MOVE_EVERY} gameSeed=${GAME_SEED}`);
 console.log(`catch rate: ${n}/${GAMES} (${(100 * n / GAMES).toFixed(0)}%)`);
 if (n) {
   const median = n % 2 ? caughtGames[(n - 1) / 2] : (caughtGames[n / 2 - 1] + caughtGames[n / 2]) / 2;

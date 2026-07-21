@@ -19,9 +19,10 @@
 
   // ---------- difficulty modes ----------
   var MODES = {
-    fawn: { emoji: '🐇', name: 'FAWN', moveEvery: 2, tracker: 50 },
-    fox:  { emoji: '🦊', name: 'FOX',  moveEvery: 1, tracker: 25 },
-    wolf: { emoji: '🐺', name: 'WOLF', moveEvery: 1, tracker: 0 }
+    fawn:  { emoji: '🐇', name: 'FAWN',  moveEvery: 2, tracker: 50 },
+    fox:   { emoji: '🦊', name: 'FOX',   moveEvery: 1, tracker: 25 },
+    wolf:  { emoji: '🐺', name: 'WOLF',  moveEvery: 1, tracker: 0 },
+    daily: { emoji: '☀', name: 'DAILY', moveEvery: 1, tracker: 25, daily: true }
   };
   var MODE_KEY = 'quarry-mode';
   var STATS_KEY = 'quarry_stats_v1';
@@ -43,8 +44,10 @@
   var toastTimer = null;
   var replayTimers = [];
   var trackerWasWarm = false;
+  var currentDay = dailyDayNumber(); // day the running daily hunt belongs to
 
   function finished() { return !game || game.gameOver || surrendered; }
+  function isDaily() { return modeId === 'daily'; }
 
   // ---------- board ----------
   function makeRow() {
@@ -154,6 +157,7 @@
 
   var SCORCH_TIP = 'scorched — the quarry can never enter this word';
   var PAW_TIP = 'the quarry moved after this guess';
+  var PAW_TIP_SKITTISH = 'the quarry bolted — it couldn’t hold still';
 
   function afterReveal(row, rep) {
     if (rep.scorchedGuess) {
@@ -164,14 +168,18 @@
     if (rep.moved) {
       var paw = document.createElement('span');
       paw.className = 'paw-marker';
-      paw.setAttribute('aria-label', PAW_TIP);
-      paw.setAttribute('data-tip', PAW_TIP);
-      paw.setAttribute('title', PAW_TIP);
+      var pawTip = rep.skittish ? PAW_TIP_SKITTISH : PAW_TIP;
+      paw.setAttribute('aria-label', pawTip);
+      paw.setAttribute('data-tip', pawTip);
+      paw.setAttribute('title', pawTip);
       paw.innerHTML = '🐾<span class="ghost">🐾</span><span class="ghost g2">🐾</span>';
       row.appendChild(paw);
     }
     rowsMeta.push({ word: rep.guess, pattern: rep.pattern, moved: rep.moved });
-    updateKeyboard(rep);
+    // WOLF hunts blind: only its own feedback, fading with age. Everyone
+    // else gets live intel recomputed from the current surviving hides.
+    if (modeId === 'wolf') updateKeyboard(rep);
+    else refreshKeyboardIntel();
     updateHunt(rep);
     updateTracker();
     revealing = false;
@@ -241,6 +249,41 @@
     }
     for (letter in best) keyInfo[letter] = { state: best[letter], age: 0 };
     applyKeyboard();
+  }
+
+  // ---------- live keyboard intel (FAWN / FOX / DAILY) ----------
+  // Recomputed wholesale from the CURRENT surviving-hides set after every
+  // turn — keys LIGHT BACK UP when the quarry's movement revives a letter.
+  function refreshKeyboardIntel() {
+    if (!game) return;
+    var words = game.candidates();
+    var intel = letterIntel(words);
+    var keys = keyboard.querySelectorAll('.key');
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i], letter = k.dataset.key;
+      if (letter.length !== 1) continue;
+      delete k.dataset.age; // no rot in live-intel modes
+      var st = intel[letter], tip = null;
+      if (st === 'impossible') {
+        k.dataset.state = '0';
+        tip = 'no surviving hide contains ' + letter.toUpperCase();
+      } else if (st === 'present') {
+        k.dataset.state = '1';
+        tip = 'every surviving hide contains ' + letter.toUpperCase();
+      } else if (st === 'locked') {
+        k.dataset.state = '2';
+        tip = letter.toUpperCase() + ' is pinned at position ' + (lockedPosition(words, letter) + 1);
+      } else {
+        delete k.dataset.state; // neutral: in some hides, not all
+      }
+      if (tip) {
+        k.setAttribute('data-tip', tip);
+        k.setAttribute('title', tip);
+      } else {
+        k.removeAttribute('data-tip');
+        k.removeAttribute('title');
+      }
+    }
   }
 
   var STALE_TIP = 'faded keys = old intel; the quarry may have moved since';
@@ -432,7 +475,10 @@
     var s = loadStats();
     var body = $('stats-body');
     body.innerHTML = '';
-    ['fawn', 'fox', 'wolf'].forEach(function (id) {
+    // daily card appears once you have played a daily
+    var ids = ['fawn', 'fox', 'wolf'];
+    if (s.daily && s.daily.games) ids.push('daily');
+    ids.forEach(function (id) {
       var m = MODES[id], d = s[id];
       var card = document.createElement('div');
       card.className = 'stat-card';
@@ -458,7 +504,131 @@
 
   $('btn-stats').addEventListener('click', function () {
     renderStats();
+    showStatsTab('local');
     openModal($('stats-modal'));
+  });
+
+  // ---------- global leaderboard (daily) ----------
+  function apiJson(path, opts) {
+    return new Promise(function (resolve, reject) {
+      var p;
+      try { p = window.fetch(path, opts); } catch (e) { return reject(e); }
+      if (!p || typeof p.then !== 'function') return reject(new Error('no fetch'));
+      p.then(function (res) {
+        return res.json().then(function (j) { resolve({ status: res.status, json: j }); });
+      }).catch(reject);
+    });
+  }
+
+  function boardListHtml(rows, meName) {
+    if (!rows || !rows.length) return '<div class="stat-none">no hunters yet — be the first.</div>';
+    return rows.map(function (r, i) {
+      var me = meName && r.name === meName;
+      return '<div class="board-row' + (me ? ' me' : '') + '">' +
+        '<span class="board-rank">' + (i + 1) + '</span>' +
+        '<span class="board-name"></span>' +
+        '<span class="board-moves">' + r.moves + '</span></div>';
+    }).join('');
+  }
+
+  function fillBoardNames(container, rows) {
+    // names go in via textContent — never innerHTML — they are user input
+    var els = container.querySelectorAll('.board-name');
+    for (var i = 0; i < els.length && i < rows.length; i++) els[i].textContent = rows[i].name;
+  }
+
+  var globalDay = currentDay;
+
+  function showStatsTab(which) {
+    var local = which === 'local';
+    $('stats-body').hidden = !local;
+    $('global-body').hidden = local;
+    $('tab-local').setAttribute('aria-selected', String(local));
+    $('tab-global').setAttribute('aria-selected', String(!local));
+    if (!local) loadGlobalBoard(globalDay);
+  }
+
+  function loadGlobalBoard(day) {
+    globalDay = Math.max(1, Math.min(day, dailyDayNumber()));
+    $('global-day-label').textContent = '☀ Day ' + globalDay;
+    $('btn-day-prev').disabled = globalDay <= 1;
+    $('btn-day-next').disabled = globalDay >= dailyDayNumber();
+    var target = $('global-board');
+    target.innerHTML = '<div class="stat-none">reading the wind…</div>';
+    var wanted = globalDay;
+    apiJson('/api/board?day=' + wanted).then(function (r) {
+      if (wanted !== globalDay) return; // stale response
+      if (r.status !== 200) { target.innerHTML = '<div class="stat-none">global board unreachable.</div>'; return; }
+      var myName = '';
+      try { myName = localStorage.getItem('quarry-name') || ''; } catch (e) {}
+      target.innerHTML =
+        '<div class="board-players">' + r.json.players + ' hunter' + (r.json.players === 1 ? '' : 's') + ' today</div>' +
+        boardListHtml(r.json.board, myName);
+      fillBoardNames(target, r.json.board || []);
+    }, function () {
+      if (wanted === globalDay) target.innerHTML = '<div class="stat-none">global board unreachable.</div>';
+    });
+  }
+
+  $('tab-local').addEventListener('click', function () { showStatsTab('local'); });
+  $('tab-global').addEventListener('click', function () { showStatsTab('global'); });
+  $('btn-day-prev').addEventListener('click', function () { loadGlobalBoard(globalDay - 1); });
+  $('btn-day-next').addEventListener('click', function () { loadGlobalBoard(globalDay + 1); });
+
+  // ---------- daily score submission ----------
+  function setupDailySubmit() {
+    var box = $('daily-submit');
+    box.hidden = !isDaily();
+    if (!isDaily()) return;
+    $('daily-board-result').innerHTML = '';
+    $('btn-join').disabled = false;
+    $('btn-join').hidden = false;
+    var input = $('name-input');
+    input.hidden = false;
+    try { input.value = localStorage.getItem('quarry-name') || ''; } catch (e) { input.value = ''; }
+  }
+
+  function showBoardNote(msg) {
+    $('daily-board-result').innerHTML = '<div class="board-note"></div>';
+    $('daily-board-result').firstChild.textContent = msg;
+  }
+
+  $('btn-join').addEventListener('click', function () {
+    var input = $('name-input');
+    var name = String(input.value || '').replace(/\s+/g, ' ').trim().slice(0, 12);
+    if (!name) { toast('name your hunter first'); input.focus(); return; }
+    try { localStorage.setItem('quarry-name', name); } catch (e) {}
+    var btn = this;
+    btn.disabled = true;
+    apiJson('/api/score', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: name,
+        day: currentDay,
+        guesses: rowsMeta.map(function (r) { return r.word; }),
+      }),
+    }).then(function (r) {
+      btn.disabled = false;
+      if (r.status === 200 && r.json && r.json.ok) {
+        btn.hidden = true;
+        input.hidden = true;
+        var res = $('daily-board-result');
+        res.innerHTML = '<div class="board-players">you rank <b>#' + Number(r.json.rank) + '</b> today</div>' +
+          boardListHtml(r.json.board, r.json.name);
+        fillBoardNames(res, r.json.board || []);
+      } else if (r.json && r.json.error === 'wrong-day') {
+        showBoardNote('the day rolled over mid-hunt — this was Day ' + currentDay + ', the board is on Day ' + r.json.today);
+      } else if (r.json && r.json.error === 'bad-name') {
+        btn.disabled = false;
+        toast('that name won’t track — letters and numbers only');
+      } else {
+        showBoardNote('global board unreachable — score kept locally');
+      }
+    }, function () {
+      btn.disabled = false;
+      showBoardNote('global board unreachable — score kept locally');
+    });
   });
 
   // ---------- surrender ----------
@@ -503,7 +673,10 @@
   // ---------- win overlay + escape replay ----------
   function showWin() {
     var n = game.turn;
-    $('win-sub').textContent = MODES[modeId].emoji + ' caught in ' + n + ' move' + (n === 1 ? '' : 's');
+    $('win-sub').textContent = isDaily()
+      ? '☀ Day ' + currentDay + ' — caught in ' + n + ' move' + (n === 1 ? '' : 's')
+      : MODES[modeId].emoji + ' caught in ' + n + ' move' + (n === 1 ? '' : 's');
+    setupDailySubmit();
     openModal($('win-overlay'));
     playReplay();
   }
@@ -559,7 +732,10 @@
   var EMOJI = { '0': '⬛', '1': '🟨', '2': '🟩' };
 
   function shareText() {
-    var lines = ['QUARRY ' + MODES[modeId].emoji + ' cornered in ' + game.turn];
+    var head = isDaily()
+      ? 'QUARRY ☀ Day ' + currentDay + ' — cornered in ' + game.turn
+      : 'QUARRY ' + MODES[modeId].emoji + ' cornered in ' + game.turn;
+    var lines = [head];
     rowsMeta.slice(-6).forEach(function (r) {
       var line = r.pattern.split('').map(function (c) { return EMOJI[c]; }).join('');
       if (r.moved) line += ' 🐾';
@@ -638,11 +814,26 @@
   });
 
   // ---------- new game ----------
+  function updateDailyNote() {
+    var note = $('daily-day-note');
+    var seg = $('mode-seg-daily');
+    seg.setAttribute('title', 'DAILY — Day ' + currentDay + ' — same hunt for everyone, resets midnight UTC');
+    if (isDaily()) {
+      note.textContent = '☀ Day ' + currentDay + ' — same hunt for everyone · resets midnight UTC';
+      note.hidden = false;
+    } else {
+      note.hidden = true;
+    }
+  }
+
   function startGame() {
+    currentDay = dailyDayNumber(); // re-read: midnight may have passed
     game = newGame({
       answers: ANSWERS, allowed: GUESSES, adjacency: ADJ,
-      moveEveryNTurns: MODES[modeId].moveEvery
+      moveEveryNTurns: MODES[modeId].moveEvery,
+      seed: isDaily() ? dailySeed(currentDay) : 0
     });
+    updateDailyNote();
     cur = '';
     revealing = false;
     surrendered = false;
@@ -654,7 +845,8 @@
     clearReplay();
     closeModal($('win-overlay'));
     closeModal($('lose-overlay'));
-    applyKeyboard();
+    applyKeyboard();                               // clears all key state
+    if (modeId !== 'wolf') refreshKeyboardIntel(); // live intel from the full set
     updateHuntHeader();
     updateTracker();
     newActiveRow();

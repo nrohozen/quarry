@@ -34,7 +34,10 @@
   <button class="mode-seg" data-mode="wolf" role="radio" aria-checked="false"
     data-tip="WOLF — flees every turn &middot; no tracker. you hunt blind" data-tip-down
     title="WOLF — flees every turn, no tracker">&#128058; wolf</button>
+  <button class="mode-seg" data-mode="daily" id="mode-seg-daily" role="radio" aria-checked="false"
+    title="DAILY — same hunt for everyone, resets midnight UTC">&#9728; daily</button>
 </div>
+<div id="daily-day-note" hidden></div>
 
 <main id="layout">
   <section id="stage">
@@ -74,7 +77,7 @@
     you win by <b>cornering it</b>: burn words to wall off its escape routes, then strike.</p>
     <ul class="rules">
       <li>It looks like Wordle &mdash; but after each guess the answer may flee one step along the word ladder (one letter changes, e.g. SHARE&rarr;SHORE&rarr;STORE).</li>
-      <li>Colors are judged against where the quarry stood <b>at the moment you guessed</b>. Old clues rot &mdash; the word may have moved on.</li>
+      <li>Tile colors are judged against where the quarry stood <b>at the moment you guessed</b> &mdash; but the keyboard is <b>live intel</b>: dark = impossible right now, yellow = guaranteed somewhere, green = position pinned. Keys light back up when movement revives a letter. &#128058; WOLF hunts blind &mdash; its keys only fade.</li>
       <li>Every word you guess becomes <b class="ember-text">scorched earth</b>: the quarry can never stand on it or pass through it again.</li>
       <li>The host is a cheat, honestly: it keeps every word consistent with its answers alive and only commits when you leave it exactly one hide.</li>
       <li>Unlimited guesses. Your score is how few it takes to corner it.</li>
@@ -90,7 +93,19 @@
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="stats-title">
     <button class="icon-btn modal-close" data-close aria-label="Close">&times;</button>
     <h2 id="stats-title">&#127942; The record</h2>
+    <div class="stats-tabs" role="tablist">
+      <button id="tab-local" class="stats-tab" role="tab" aria-selected="true">local</button>
+      <button id="tab-global" class="stats-tab" role="tab" aria-selected="false">global &#9728;</button>
+    </div>
     <div id="stats-body"></div>
+    <div id="global-body" hidden>
+      <div class="day-switch">
+        <button id="btn-day-prev" class="icon-btn small" aria-label="Previous day">&lsaquo;</button>
+        <span id="global-day-label"></span>
+        <button id="btn-day-next" class="icon-btn small" aria-label="Next day">&rsaquo;</button>
+      </div>
+      <div id="global-board"></div>
+    </div>
     <p class="honest-line">Each difficulty&rsquo;s hunt is fully deterministic &mdash; a perfect line exists. Your best IS the record.</p>
   </div>
 </div>
@@ -104,6 +119,15 @@
     <div id="win-sub"></div>
     <div class="route-label">the escape it confesses to:</div>
     <div id="route-chain"></div>
+    <div id="daily-submit" hidden>
+      <div class="daily-sub-title">&#9728; today&rsquo;s board</div>
+      <div class="daily-form">
+        <input id="name-input" maxlength="12" placeholder="your name" autocomplete="off"
+          aria-label="Name for the global board">
+        <button id="btn-join" class="text-btn primary">join today&rsquo;s board</button>
+      </div>
+      <div id="daily-board-result"></div>
+    </div>
     <div class="win-actions">
       <button id="btn-replay" class="text-btn">&#8635; replay</button>
       <button id="btn-share" class="text-btn primary">share &#128062;</button>

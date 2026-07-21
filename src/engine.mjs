@@ -90,6 +90,104 @@ export function chooseHostPattern(buckets) {
   return best;
 }
 
+// ---------------------------------------------------------------------------
+// Seeded host choice (daily hunts). seed=0/absent means the legacy fully
+// deterministic host above — bit-for-bit identical behavior.
+//
+// With a nonzero seed the host gets per-turn wiggle room. Two independent,
+// STATELESS per-turn derivations (no shared PRNG stream — replaying the same
+// guesses under the same seed is identical regardless of code path):
+//
+//   slack_t = 0.60 + 0.35 * mulberry32(hash32(seed, turnIndex ^ SLACK_MIX))()
+//             -> in [0.60, 0.95); every non-all-green bucket with
+//                size >= slack_t * maxSize is a candidate
+//   pick    = mulberry32(hash32(seed, turnIndex))() scaled to the candidate
+//             count, over candidates sorted by pattern string
+//             (canonical order -> platform-stable indexing)
+//
+// The all-green bucket stays excluded unless it is the only bucket.
+// ADVERSARY_SLACK is retained as the historical fixed-slack documentation
+// constant (v1.3); the live seeded host uses slack_t above.
+// ---------------------------------------------------------------------------
+export const ADVERSARY_SLACK = 0.9;
+
+// SLACK_MIX selected by measurement (96-constant sweep over a fixed greedy
+// line, slack range [0.60, 0.95)): 0x190E gave 9/10 distinct transcripts on
+// Days 1-10 and 32/60 (53%) over Days 1-60 — the best observed; runners-up
+// scored 30/60. NOTE: ~50% distinct per 60 days is the structural ceiling of
+// this architecture against an IDENTICAL bot line (the max-bucket funnel at
+// early turns caps per-game entropy at ~5 bits). Two colliding days share
+// the same optimal-bot line, not the same human experience — distinct human
+// guess sequences diverge immediately. Frozen at daily-board launch.
+export const SLACK_MIX = 0x190E;
+
+export function seededSlack(seed, turnIndex) {
+  return 0.60 + 0.35 * mulberry32(hash32(seed, ((turnIndex >>> 0) ^ SLACK_MIX) >>> 0))();
+}
+
+// ---------------------------------------------------------------------------
+// Skittish days (v1.5, movement-phase seeding). When seed != 0, each MOVE
+// turn may be SKITTISH, decided statelessly per turn:
+//
+//   skittish_t = mulberry32(hash32(seed, turnIndex ^ SKITTISH_MIX))() < P_SKITTISH
+//
+// On a skittish turn the quarry MUST flee: S := ∪ unscorchedNeighbors(p),
+// except a trapped p (zero unscorched neighbors) contributes {p} — trapped
+// prey may hold, preserving the S-nonempty invariant. This is exactly the
+// mayStay=false branch of applyMove. Non-skittish move turns keep the
+// may-stay union. seed=0 turns are never skittish (legacy bit-identical).
+// ---------------------------------------------------------------------------
+// SKITTISH_MIX/P selected by measurement (64-constant sweep at P=0.5, plus a
+// P∈{0.4,0.6} sweep over the top 16): 0x7B15 @ P=0.5 gave 50/60 (83%)
+// distinct Days 1-60 and 10/10 on Days 1-10 — the best observed (several
+// combos tie at 50/60; the 90% target is above this architecture's ceiling).
+// Skittish movement lifted the fixed-line diversity record from 32/60 to
+// 50/60. WHOLE DAILY-HOST DERIVATION FROZEN AT BOARD LAUNCH 2026-07-21.
+export const SKITTISH_MIX = 0x7B15;
+export const P_SKITTISH = 0.5;
+
+export function isSkittish(seed, turnIndex) {
+  return mulberry32(hash32(seed, ((turnIndex >>> 0) ^ SKITTISH_MIX) >>> 0))() < P_SKITTISH;
+}
+
+// xmur3-style integer mix of two uint32s -> uint32. All ops are 32-bit
+// integer ops, so results are identical on every JS engine.
+export function hash32(a, b) {
+  let h = Math.imul(a >>> 0, 0x9E3779B1) >>> 0;
+  h = (h + ((b >>> 0) + 0x9E3779B9)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85EBCA6B) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xC2B2AE35) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+export function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t = (t ^ (t + Math.imul(t ^ (t >>> 7), t | 61))) >>> 0;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function chooseHostPatternSeeded(buckets, seed, turnIndex) {
+  const patterns = [...buckets.keys()];
+  if (patterns.length === 1) return patterns[0];
+  const eligible = patterns.filter(p => p !== '22222');
+  let maxSize = 0;
+  for (const p of eligible) {
+    const s = buckets.get(p).length;
+    if (s > maxSize) maxSize = s;
+  }
+  const slack = seededSlack(seed, turnIndex);
+  const cands = eligible
+    .filter(p => buckets.get(p).length >= slack * maxSize)
+    .sort(); // canonical order before indexing
+  const r = mulberry32(hash32(seed, turnIndex))();
+  return cands[Math.min(cands.length - 1, Math.floor(r * cands.length))];
+}
+
 export function bucketize(candidates, guess) {
   const buckets = new Map();
   for (const p of candidates) {
@@ -135,6 +233,59 @@ export function applyMove(S, adjacency, scorched, mayStay) {
 }
 
 // ---------------------------------------------------------------------------
+// Live keyboard intel, computed from the CURRENT surviving-hides set
+// (post-movement). For each letter a-z:
+//   'impossible' — the letter appears in zero hides
+//   'locked'     — some position p exists where EVERY hide has it at p
+//   'present'    — the letter appears in every hide, but no position is fixed
+//   'unknown'    — anything else (in some hides but not all)
+// locked outranks present. Empty input (cannot happen in a live game — the
+// S-nonempty invariant) yields all-'unknown': no hides, no information.
+// ---------------------------------------------------------------------------
+export function letterIntel(possibleWords) {
+  const words = Array.isArray(possibleWords) ? possibleWords : [...possibleWords];
+  const AZ = 'abcdefghijklmnopqrstuvwxyz';
+  const intel = {};
+  if (words.length === 0) {
+    for (const ch of AZ) intel[ch] = 'unknown';
+    return intel;
+  }
+  const inCount = {};   // words containing the letter at least once
+  const posCount = {};  // words with the letter at position i
+  for (const ch of AZ) { inCount[ch] = 0; posCount[ch] = [0, 0, 0, 0, 0]; }
+  for (const w of words) {
+    let seenMask = 0;
+    for (let i = 0; i < 5; i++) {
+      const ch = w[i];
+      posCount[ch][i]++;
+      const bit = 1 << (w.charCodeAt(i) - 97);
+      if (!(seenMask & bit)) { seenMask |= bit; inCount[ch]++; }
+    }
+  }
+  const n = words.length;
+  for (const ch of AZ) {
+    if (inCount[ch] === 0) intel[ch] = 'impossible';
+    else if (posCount[ch].indexOf(n) !== -1) intel[ch] = 'locked';
+    else if (inCount[ch] === n) intel[ch] = 'present';
+    else intel[ch] = 'unknown';
+  }
+  return intel;
+}
+
+// Companion for UI copy: the pinned position (0-based) of a 'locked' letter,
+// or -1 if none.
+export function lockedPosition(possibleWords, letter) {
+  const words = Array.isArray(possibleWords) ? possibleWords : [...possibleWords];
+  if (words.length === 0) return -1;
+  for (let i = 0; i < 5; i++) {
+    let all = true;
+    for (const w of words) if (w[i] !== letter) { all = false; break; }
+    if (all) return i;
+  }
+  return -1;
+}
+
+// ---------------------------------------------------------------------------
 // Dead-end prey: a word with zero unscorched neighbors. If the quarry is
 // standing there, it can never leave — a prime target.
 // ---------------------------------------------------------------------------
@@ -152,6 +303,7 @@ export function isCornered(word, adjacency, scorched) {
 //   allowed:  extra allowed guesses (optional; guesses = answers ∪ allowed)
 //   quarryMayStay: bool (default true)
 //   moveEveryNTurns: int (default 1)
+//   seed: uint32 (default 0 = legacy deterministic host, bit-for-bit)
 // }
 // ---------------------------------------------------------------------------
 export function newGame(options) {
@@ -162,6 +314,7 @@ export function newGame(options) {
   const config = {
     quarryMayStay: options.quarryMayStay !== false,
     moveEveryNTurns: options.moveEveryNTurns || 1,
+    seed: (options.seed || 0) >>> 0,
   };
   const adjacency = options.adjacency || buildAdjacency(answers);
 
@@ -191,9 +344,11 @@ export function newGame(options) {
     turn += 1;
     const sizeBefore = S.size;
 
-    // 1-2. bucket + host choice
+    // 1-2. bucket + host choice (turnIndex = guesses made before this one)
     const buckets = bucketize(S, word);
-    const pattern = chooseHostPattern(buckets);
+    const pattern = config.seed
+      ? chooseHostPatternSeeded(buckets, config.seed, turn - 1)
+      : chooseHostPattern(buckets);
     const win = pattern === '22222';
 
     // 3. collapse S to the chosen bucket
@@ -204,14 +359,18 @@ export function newGame(options) {
     const scorchedGuess = answerSet.has(word);
     if (scorchedGuess) scorched.add(word);
 
-    // 5. movement phase
+    // 5. movement phase. Seeded games may be SKITTISH on a move turn: the
+    // quarry must flee (mayStay=false path; trapped prey still holds).
     let moved = false;
+    let skittish = false;
     let sizeAfterMove = sizeAfterFilter;
     if (win) {
       gameOver = true;
       finalWord = word;
     } else if (turn % config.moveEveryNTurns === 0) {
-      const { set, parents } = applyMove(S, adjacency, scorched, config.quarryMayStay);
+      skittish = config.seed !== 0 && isSkittish(config.seed, turn - 1);
+      const { set, parents } = applyMove(
+        S, adjacency, scorched, skittish ? false : config.quarryMayStay);
       S = set;
       moveParents[turn] = parents;
       moved = true;
@@ -224,7 +383,7 @@ export function newGame(options) {
     totalBitsLeaked += bitsLeaked;
 
     const report = {
-      turn, guess: word, pattern, win, moved, scorchedGuess,
+      turn, guess: word, pattern, win, moved, skittish, scorchedGuess,
       sizeBefore, sizeAfterFilter, sizeAfterMove,
       bitsGained, bitsLeaked,
     };
@@ -269,3 +428,54 @@ export function newGame(options) {
     isAllowed(w) { return allowedSet.has(w); },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Pure replay: feed a guess list through a fresh game. This is how the
+// server verifies scores — the replay IS the proof. Trailing guesses after
+// a win are ignored.
+// modeConfig: { moveEveryNTurns, quarryMayStay }
+// wordlists:  { answers, allowed, adjacency? }
+// ---------------------------------------------------------------------------
+export function replayGame(seed, modeConfig, guesses, wordlists) {
+  const game = newGame({
+    answers: wordlists.answers,
+    allowed: wordlists.allowed,
+    adjacency: wordlists.adjacency,
+    quarryMayStay: modeConfig.quarryMayStay !== false,
+    moveEveryNTurns: modeConfig.moveEveryNTurns || 1,
+    seed: seed,
+  });
+  const transcript = [];
+  for (const g of guesses) {
+    if (game.gameOver) break;
+    const rep = game.guess(String(g).toLowerCase());
+    if (rep.error) {
+      return { won: false, moves: game.turn, transcript, error: rep.error, badGuess: g };
+    }
+    transcript.push(rep);
+    if (rep.win) return { won: true, moves: game.turn, transcript };
+  }
+  return { won: false, moves: game.turn, transcript };
+}
+
+// ---------------------------------------------------------------------------
+// Daily hunt derivation. Day 1 = 2026-07-21 UTC; resets at midnight UTC.
+// Daily rules = FOX (moveEvery 1) + the daily seed.
+// ---------------------------------------------------------------------------
+export const DAILY_EPOCH_DAY = Math.floor(Date.UTC(2026, 6, 21) / 86400000) - 1;
+
+export function dailyDayNumber(ms) {
+  return Math.floor((ms === undefined ? Date.now() : ms) / 86400000) - DAILY_EPOCH_DAY;
+}
+
+// || 1 guards the (1-in-4-billion) hash landing on 0, which would mean
+// "legacy deterministic host" — a daily must always be seeded.
+export function dailySeed(dayNumber) {
+  return hash32(dayNumber >>> 0, 0x51A44) || 1;
+}
+
+export const DAILY_MODE = Object.freeze({
+  moveEveryNTurns: 1,
+  quarryMayStay: true,
+  trackerThreshold: 25, // UI hint; not used by the engine itself
+});
