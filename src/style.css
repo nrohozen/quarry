@@ -198,11 +198,13 @@ button {
   max-width: 500px;
   padding: 6px 2px 10px;
   user-select: none;
+  /* one key unit = 1/10 of the row, so key columns align across rows
+     (flex-grow stretching made 9-key rows wider than 10-key rows) */
+  --keyw: calc((100% - 45px) / 10);
 }
 .kb-row { display: flex; justify-content: center; gap: 5px; margin-bottom: 6px; }
 .key {
-  flex: 1 1 0;
-  max-width: 44px;
+  flex: 0 0 var(--keyw);
   height: 54px;
   border: none;
   border-radius: 4px;
@@ -215,7 +217,7 @@ button {
   position: relative;
   transition: opacity .5s, filter .5s;
 }
-.key.wide { flex: 1.6 1 0; max-width: 68px; font-size: 11px; }
+.key.wide { flex-basis: calc(var(--keyw) * 1.5 + 2.5px); font-size: 11px; }
 .key:active { transform: scale(0.96); }
 .key[data-state="2"] { background: var(--green); color: #fff; }
 .key[data-state="1"] { background: var(--yellow); color: #fff; }

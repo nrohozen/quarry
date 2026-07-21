@@ -184,7 +184,8 @@
   }
 
   // ---------- on-screen keyboard ----------
-  var KB_ROWS = ['qwertyuiop', 'asdfghjkl', '@zxcvbnm#']; // @ = enter, # = backspace
+  // iOS-style action cluster: backspace + enter bottom-right, where phone thumbs expect them
+  var KB_ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm#@']; // @ = enter, # = backspace
 
   function buildKeyboard() {
     keyboard.innerHTML = '';
