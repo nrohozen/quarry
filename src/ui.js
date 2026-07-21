@@ -218,6 +218,7 @@
   keyboard.addEventListener('click', function (e) {
     var k = e.target.closest('.key');
     if (!k) return;
+    k.blur(); // a focused key would also re-fire on a later physical Enter
     var key = k.dataset.key;
     if (key === 'enter') submitGuess();
     else if (key === 'back') removeLetter();
@@ -352,7 +353,9 @@
       var seen = false;
       try { seen = localStorage.getItem(HINT_KEY) === '1'; } catch (e) {}
       if (!seen) {
-        if (huntPanel.hidden) {
+        // auto-open only where the panel is a side column; on phones it is a
+        // bottom sheet that would land on top of the keyboard mid-hunt
+        if (huntPanel.hidden && window.innerWidth >= 900) {
           huntPanel.hidden = false;
           $('btn-hunt').setAttribute('aria-pressed', 'true');
         }

@@ -33,7 +33,11 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-button { font-family: inherit; cursor: pointer; }
+button {
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation; /* no double-tap-zoom delay on any control */
+}
 
 /* ---------- header ---------- */
 #topbar {
@@ -251,6 +255,10 @@ body.cb .tile::after, body.cb .key:not(:hover)::after {
   min-height: 0;
   font-size: 13px;
 }
+/* the ID rule above outranks the UA [hidden]{display:none} — restate it,
+   or the closed panel keeps rendering as an invisible-but-tappable bottom
+   sheet over the keyboard on phones (the "can't type on mobile" bug) */
+#hunt-panel[hidden] { display: none; }
 .hunt-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .hunt-title { letter-spacing: .3em; font-size: 12px; font-weight: 700; color: var(--ember); }
 .hunt-explainer { color: var(--text-dim); font-size: 12px; line-height: 1.45; margin-bottom: 12px; }
@@ -463,8 +471,17 @@ body.cb .tile::after, body.cb .key:not(:hover)::after {
 
 /* ---------- v1.1: custom tooltips ---------- */
 [data-tip] { position: relative; }
+/* Hover tooltips only on true hover devices: on touch, iOS consumes the
+   first tap to "show" hover-revealed content, which would eat key presses.
+   Touch users get aria-labels/title; nothing essential is hover-only. */
+@media (hover: hover) and (pointer: fine) {
+  [data-tip]:hover::after { content: attr(data-tip); }
+  [data-tip][data-tip-down]:hover::after { bottom: auto; top: calc(100% + 7px); }
+  /* hovering a paw marker suppresses its row's scorched tooltip */
+  .row[data-tip]:has(.paw-marker:hover)::after { content: none !important; }
+}
+[data-tip]:focus-visible::after { content: attr(data-tip); }
 [data-tip]:hover::after, [data-tip]:focus-visible::after {
-  content: attr(data-tip);
   position: absolute;
   bottom: calc(100% + 7px);
   left: 50%;
@@ -494,8 +511,6 @@ body.cb .tile::after, body.cb .key:not(:hover)::after {
   bottom: auto;
   top: calc(100% + 7px);
 }
-/* hovering a paw marker suppresses its row's scorched tooltip */
-.row[data-tip]:has(.paw-marker:hover)::after { content: none !important; }
 
 /* ---------- v1.1: tracker (fresh tracks) ---------- */
 #tracker {
