@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>QUARRY — the word is running</title>
+<style>
+/*__STYLE__*/
+</style>
+</head>
+<body>
+<header id="topbar">
+  <div class="bar-side left">
+    <button id="btn-help" class="icon-btn" aria-label="How to play" data-tip="how to hunt" data-tip-down title="how to hunt">?</button>
+  </div>
+  <div class="wordmark-wrap">
+    <h1 id="wordmark">QUARRY</h1>
+    <div id="tagline">the word is running.</div>
+  </div>
+  <div class="bar-side right">
+    <button id="btn-hunt" class="icon-btn" aria-label="Toggle hunt panel" aria-pressed="false" data-tip="hunt panel — live intel on the chase" data-tip-down title="hunt panel">&#128269;</button>
+    <button id="btn-stats" class="icon-btn" aria-label="Trophies and stats" data-tip="your record, per difficulty" data-tip-down title="your record">&#127942;</button>
+    <button id="btn-new" class="icon-btn" aria-label="New game" data-tip="fresh trail — start a new hunt" data-tip-down title="new hunt">&#8635;</button>
+  </div>
+</header>
+
+<div id="mode-bar" role="radiogroup" aria-label="Difficulty">
+  <button class="mode-seg" data-mode="fawn" role="radio" aria-checked="false"
+    data-tip="FAWN — flees only every 2nd turn &middot; tracker shows hides at &le;50" data-tip-down
+    title="FAWN — flees every 2nd turn, tracker at 50">&#128007; fawn</button>
+  <button class="mode-seg" data-mode="fox" role="radio" aria-checked="false"
+    data-tip="FOX — flees every turn &middot; tracker shows hides at &le;25" data-tip-down
+    title="FOX — flees every turn, tracker at 25">&#129418; fox</button>
+  <button class="mode-seg" data-mode="wolf" role="radio" aria-checked="false"
+    data-tip="WOLF — flees every turn &middot; no tracker. you hunt blind" data-tip-down
+    title="WOLF — flees every turn, no tracker">&#128058; wolf</button>
+</div>
+
+<main id="layout">
+  <section id="stage">
+    <div id="board-wrap"><div id="board" aria-label="Guess grid"></div></div>
+    <div id="keyboard" aria-label="On-screen keyboard"></div>
+  </section>
+
+  <aside id="hunt-panel" aria-label="Hunt panel" hidden>
+    <div class="hunt-head">
+      <span class="hunt-title">THE HUNT</span>
+      <button id="btn-hunt-close" class="icon-btn small" aria-label="Close hunt panel">&times;</button>
+    </div>
+    <p class="hunt-explainer">The host tracks every word that could still be true. You gain
+    information; the quarry&rsquo;s movement leaks it back.</p>
+    <div class="hides-line"><span id="hides-count" data-tip="words the quarry could still be, given every clue so far" title="words the quarry could still be, given every clue so far"></span></div>
+    <div id="hides-bar"><div id="hides-bar-fill"></div></div>
+    <div id="bits-line" data-tip="&#128269; your guess narrowed the set (+bits) &middot; &#128062; its movement widened it (&minus;bits)" title="your guess narrows the set (+bits); its movement widens it (−bits)"></div>
+    <div id="tracker">
+      <div class="tracker-title">FRESH TRACKS</div>
+      <div id="tracker-body"></div>
+    </div>
+    <div id="hunt-log"></div>
+    <div class="hunt-foot">
+      <button id="btn-surrender" class="text-btn danger" data-tip="give up — the quarry escapes and it goes on your record" title="give up this hunt">&#127987; abandon hunt</button>
+    </div>
+  </aside>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- Help modal -->
+<div id="help-modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <button class="icon-btn modal-close" data-close aria-label="Close">&times;</button>
+    <h2 id="help-title">How to hunt</h2>
+    <p class="lead">There is <b>NO secret word to solve</b>. The quarry is a moving target &mdash;
+    you win by <b>cornering it</b>: burn words to wall off its escape routes, then strike.</p>
+    <ul class="rules">
+      <li>It looks like Wordle &mdash; but after each guess the answer may flee one step along the word ladder (one letter changes, e.g. SHARE&rarr;SHORE&rarr;STORE).</li>
+      <li>Colors are judged against where the quarry stood <b>at the moment you guessed</b>. Old clues rot &mdash; the word may have moved on.</li>
+      <li>Every word you guess becomes <b class="ember-text">scorched earth</b>: the quarry can never stand on it or pass through it again.</li>
+      <li>The host is a cheat, honestly: it keeps every word consistent with its answers alive and only commits when you leave it exactly one hide.</li>
+      <li>Unlimited guesses. Your score is how few it takes to corner it.</li>
+    </ul>
+    <p class="hint"><b>Strategy:</b> guessed words become walls &mdash; herd it into a dead end.
+    When the trail gets warm, the <b>fresh tracks</b> panel (&#128269;) shows every hide left.</p>
+    <label class="cb-row"><input type="checkbox" id="cb-toggle"> Color-blind assist (adds &#9650;/&#9679; marks on yellow/green tiles)</label>
+  </div>
+</div>
+
+<!-- Stats / leaderboard modal -->
+<div id="stats-modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="stats-title">
+    <button class="icon-btn modal-close" data-close aria-label="Close">&times;</button>
+    <h2 id="stats-title">&#127942; The record</h2>
+    <div id="stats-body"></div>
+    <p class="honest-line">Each difficulty&rsquo;s hunt is fully deterministic &mdash; a perfect line exists. Your best IS the record.</p>
+  </div>
+</div>
+
+<!-- Win overlay -->
+<div id="win-overlay" class="modal" hidden>
+  <div class="modal-card win-card" role="dialog" aria-modal="true" aria-labelledby="win-title">
+    <button class="icon-btn modal-close" data-close aria-label="Close">&times;</button>
+    <div class="win-paw">&#128062;</div>
+    <h2 id="win-title">QUARRY CORNERED</h2>
+    <div id="win-sub"></div>
+    <div class="route-label">the escape it confesses to:</div>
+    <div id="route-chain"></div>
+    <div class="win-actions">
+      <button id="btn-replay" class="text-btn">&#8635; replay</button>
+      <button id="btn-share" class="text-btn primary">share &#128062;</button>
+    </div>
+  </div>
+</div>
+
+<!-- Surrender overlay -->
+<div id="lose-overlay" class="modal" hidden>
+  <div class="modal-card win-card" role="dialog" aria-modal="true" aria-labelledby="lose-title">
+    <button class="icon-btn modal-close" data-close aria-label="Close">&times;</button>
+    <div class="win-paw">&#127987;</div>
+    <h2 id="lose-title">THE QUARRY SLIPPED AWAY</h2>
+    <div id="lose-sub"></div>
+    <div class="route-label">it was hiding among:</div>
+    <div id="hideout-list"></div>
+    <div class="win-actions">
+      <button id="btn-lose-new" class="text-btn primary">new hunt</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/*__WORDS__*/
+/*__ENGINE__*/
+/*__UI__*/
+</script>
+</body>
+</html>
