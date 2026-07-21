@@ -98,6 +98,18 @@ build.mjs            inliner -> dist/index.html
 sim/sim.mjs          headless playtest bots
 ```
 
+## Origin
+
+The core mechanic — the answer *moves* one step along the word-ladder graph
+between guesses, feedback is judged against its position at guess time, and
+every guessed word becomes scorched earth the quarry can never enter, so the
+player wins by cutting the graph and cornering it under an adversarial
+set-tracking host — was designed and first published here in July 2026. A
+survey of existing variants at the time (Absurdle, Weaver, xordle, Fibble,
+and the large community variant catalogs) found no prior game combining
+these mechanics. Closest relatives: Absurdle (adversarial candidate set, but
+stationary) and Weaver (word-ladder graph, but a static puzzle).
+
 ## Engine notes
 
 - State is the set `S` of positions consistent with all feedback so far
@@ -110,3 +122,11 @@ sim/sim.mjs          headless playtest bots
   contains scorched words and the quarry may stay, `S` can never go empty.
 - Per-turn parent links are recorded so the winning replay is a genuine walk
   through the graph consistent with every color shown.
+
+## Credits & license
+
+MIT — see [LICENSE](LICENSE). QUARRY is an original game inspired by
+[Wordle](https://www.nytimes.com/games/wordle/index.html) (a trademark of The
+New York Times, which is not affiliated with this project) and by
+[Absurdle](https://qntm.org/absurdle)'s adversarial-host idea. Word lists are
+the community-circulated Wordle answer/guess lists.
